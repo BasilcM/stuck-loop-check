@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Stuck Loop Check</title>
+<meta name="description" content="A 3-minute self-check on procrastination and low-energy days, with personalised next steps.">
+<style>
+  :root{--bg:#faf8f4;--card:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e6e2da;--accent:#2f6f4f;--accent-soft:#e7f1ec;--warn:#9a5b00;--warn-soft:#fdf3e3;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Georgia,"Times New Roman",serif;background:var(--bg);color:var(--ink);line-height:1.6}
+  .wrap{max-width:680px;margin:0 auto;padding:32px 20px 64px}
+  h1{font-size:2rem;line-height:1.2;margin:0 0 8px}
+  h2{font-family:system-ui,sans-serif;font-size:1.15rem;margin:28px 0 8px}
+  p{margin:0 0 14px}
+  .sub{color:var(--muted);font-size:1.05rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;margin:18px 0}
+  .q{font-size:1.1rem;margin-bottom:12px}
+  .qnum{font-family:system-ui,sans-serif;font-size:.8rem;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+  .opts{display:grid;gap:8px}
+  .opt{font-family:system-ui,sans-serif;display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:#fff}
+  .opt:hover{border-color:var(--accent)}
+  .opt input{accent-color:var(--accent)}
+  .opt.sel{border-color:var(--accent);background:var(--accent-soft)}
+  button{font-family:system-ui,sans-serif;font-size:1rem;padding:13px 22px;border-radius:999px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .progress{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin:18px 0 4px}
+  .bar{height:100%;background:var(--accent);width:0;transition:width .25s}
+  .small{font-family:system-ui,sans-serif;font-size:.85rem;color:var(--muted)}
+  .area{border-left:4px solid var(--accent);padding:4px 0 4px 14px;margin:16px 0}
+  .area.high{border-color:var(--warn)}
+  .meter{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin:6px 0 10px;max-width:260px}
+  .meter span{display:block;height:100%;background:var(--accent)}
+  .area.high .meter span{background:var(--warn)}
+  .tag{font-family:system-ui,sans-serif;font-size:.75rem;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:middle}
+  .area.high .tag{background:var(--warn-soft);color:var(--warn)}
+  .help{background:var(--warn-soft);border:1px solid #f0d9b0}
+  ul{padding-left:20px;margin:0 0 10px} li{margin-bottom:6px}
+  .hidden{display:none}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <section id="intro">
+    <h1>The Stuck Loop Check</h1>
+    <p class="sub">Ten quick questions about how you start, focus, recharge and talk to yourself. You'll get your score, the one area to focus on first, and what to do about it this week.</p>
+    <div class="card">
+      <p><strong>Takes about 3 minutes.</strong> Answer for the last two weeks. The questions change each time, so you can retake it later and compare.</p>
+      <p class="small">This is a self-reflection tool, not a medical or psychological test. No name or email is asked. Your anonymous answers and score are saved so the author can improve this check.</p>
+      <button id="startBtn">Start the check</button>
+    </div>
+  </section>
+
+  <section id="quiz" class="hidden">
+    <div class="progress"><div class="bar" id="bar"></div></div>
+    <p class="small" id="count"></p>
+    <div class="card" id="qcard"></div>
+    <div style="display:flex;gap:10px;justify-content:space-between">
+      <button class="ghost" id="backBtn">Back</button>
+      <button id="nextBtn" disabled>Next</button>
+    </div>
+  </section>
+
+  <section id="result" class="hidden"></section>
+
+</div>
+
+<script>
+// ===== CONFIG: paste your Google Apps Script web app URL here =====
+const SHEET_ENDPOINT = "https://script.google.com/macros/s/AKfycbx60R5HWvnzuB5iVflxtiTIpuLuHXDyyv0Tgxhv_v8c1EwbZiaKKDhyH8tntMUSOkG0/exec";
+
+// Options: score 0 = not stuck at all ... 3 = very stuck in this area.
+const FREQ = [
+  {label:"Rarely or never", s:0},
+  {label:"Sometimes", s:1},
+  {label:"Often", s:2},
+  {label:"Almost every day", s:3}
+];
+const FREQ_REV = [ // for positively worded questions
+  {label:"Almost every day", s:0},
+  {label:"Often", s:1},
+  {label:"Sometimes", s:2},
+  {label:"Rarely or never", s:3}
+];
+
+const AREAS = {
+  start:  {name:"Starting tasks", short:"Starting"},
+  focus:  {name:"Focus and environment", short:"Focus"},
+  energy: {name:"Energy and body", short:"Energy"},
+  talk:   {name:"Self-talk", short:"Self-talk"},
+  people: {name:"Support and connection", short:"Support"}
+};
+
+const BANK = [
+  // Starting tasks
+  {id:"S1", a:"start", q:"I put off a task because it feels too big to begin.", o:FREQ},
+  {id:"S2", a:"start", q:"I wait until I 'feel ready' or motivated before I start something important.", o:FREQ},
+  {id:"S3", a:"start", q:"I do easy, low-value tasks to avoid the one that actually matters.", o:FREQ},
+  {id:"S4", a:"start", q:"When I sit down to work, I get going within the first 10 minutes.", o:FREQ_REV},
+  // Focus & environment
+  {id:"F1", a:"focus", q:"I check my phone or messages while trying to do focused work.", o:FREQ},
+  {id:"F2", a:"focus", q:"I have many tabs or apps open and switch between them without noticing.", o:FREQ},
+  {id:"F3", a:"focus", q:"I have a set time or place where I do my most important work.", o:FREQ_REV},
+  {id:"F4", a:"focus", q:"An hour passes and I can't say what I actually got done.", o:FREQ},
+  // Energy & body
+  {id:"E1", a:"energy", q:"I feel tired even after a full night's sleep.", o:FREQ},
+  {id:"E2", a:"energy", q:"I go a whole day without walking or moving for at least 10 minutes.", o:FREQ},
+  {id:"E3", a:"energy", q:"I sleep at roughly the same time most nights.", o:FREQ_REV},
+  {id:"E4", a:"energy", q:"By mid-afternoon my energy has crashed and I can't think clearly.", o:FREQ},
+  // Self-talk
+  {id:"T1", a:"talk", q:"When I fall behind, I call myself lazy, useless or a failure.", o:FREQ},
+  {id:"T2", a:"talk", q:"Guilt about unfinished work stops me from enjoying my free time.", o:FREQ},
+  {id:"T3", a:"talk", q:"I can make a mistake at work and move on without replaying it for hours.", o:FREQ_REV},
+  {id:"T4", a:"talk", q:"I compare my progress with others and feel I'm falling behind.", o:FREQ},
+  // Support & connection
+  {id:"P1", a:"people", q:"I keep it to myself when I'm struggling with work or mood.", o:FREQ},
+  {id:"P2", a:"people", q:"I talk to a friend or family member about something real, not just small talk.", o:FREQ_REV},
+  {id:"P3", a:"people", q:"I avoid calls, messages or plans because I don't have the energy.", o:FREQ},
+  {id:"P4", a:"people", q:"I have at least one person I could tell 'I'm having a hard week'.", o:FREQ_REV}
+];
+
+const ADVICE = {
+  start: {
+    low: "Starting isn't your main problem. Keep protecting the habit that works for you.",
+    mid: ["Before you open anything, write the 2-minute version of your next task (e.g. 'write one bad sentence').", "Start before you feel ready. Set a 5-minute timer and stop when it rings if you want to."],
+    high:["Every morning, pick ONE task that would make tomorrow easier. Only one.", "Shrink its first step until it feels almost silly: open the file, write the heading, send one line.", "Do that step at a fixed time (e.g. 10:00) so there's no decision left to make.", "Count starting as the win, not finishing."]
+  },
+  focus: {
+    low: "Your focus habits are solid. Use your best hours for your hardest work.",
+    mid: ["Put your phone in another room for one 25-minute block a day.", "Close every tab you don't need for the task in front of you."],
+    high:["Set up one 'focus block' a day: same time, same place, phone in another room.", "Work in 25-minute rounds with a 5-minute break. Write down what you'll do before each round.", "Turn off non-urgent notifications for the whole day, not just during the block.", "At the end of each block, write one line about what you got done."]
+  },
+  energy: {
+    low: "Your energy basics look okay. Keep moving and keep your sleep regular.",
+    mid: ["Take a 10-minute walk before your hardest task, not after.", "Try to go to bed within the same 30-minute window each night."],
+    high:["Add one 10-minute walk every day, ideally outside and in daylight.", "Keep a steady sleep and wake time, even on weekends, for the next two weeks.", "Eat a proper lunch away from your screen.", "If you're constantly exhausted despite sleeping, mention it to a doctor. Fatigue has many causes worth checking."]
+  },
+  talk: {
+    low: "You treat yourself fairly when things go wrong. That's a real strength.",
+    mid: ["When you notice a harsh thought, ask: 'What would I say to a teammate here?' Then say that to yourself.", "End each day by writing down one thing you did, however small."],
+    high:["Catch the voice: each time you call yourself lazy or useless, write the exact words down.", "Rewrite it the way you'd talk to a friend: 'This one's hard. Let's do the first bit.'", "Keep a 'done list' instead of only a to-do list.", "Notice comparison triggers (certain apps or feeds) and limit them this week."]
+  },
+  people: {
+    low: "You have good people around you. Keep leaning on them, on good days and bad.",
+    mid: ["Tell one person what you're working on today. Saying it out loud helps.", "Reply to one message you've been avoiding, even with a short line."],
+    high:["Pick one person and send them a simple message today: 'Hard week. Can we talk this weekend?'", "Try 'body doubling': work alongside a friend on a video call, cameras on and mics off.", "Say yes to one small social plan this week, even if it's short.", "If you feel alone with this, talking to a counsellor is a strong, practical step. See the help box below."]
+  }
+};
+
+// ===== state =====
+let questions = [], answers = [], idx = 0;
+const sid = Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+function buildQuiz(){
+  // 2 random questions per area -> 10 questions, shuffled order
+  const picked=[];
+  Object.keys(AREAS).forEach(k=>{picked.push(...shuffle(BANK.filter(b=>b.a===k)).slice(0,2));});
+  questions = shuffle(picked);
+  answers = new Array(questions.length).fill(null);
+  idx = 0;
+}
+
+function render(){
+  const q=questions[idx];
+  document.getElementById('bar').style.width = (idx/questions.length*100)+'%';
+  document.getElementById('count').textContent = `Question ${idx+1} of ${questions.length}`;
+  const card=document.getElementById('qcard');
+  card.innerHTML = `<div class="qnum">${AREAS[q.a].short}</div><div class="q">${q.q}</div><div class="opts">${
+    q.o.map((o,i)=>`<label class="opt ${answers[idx]===i?'sel':''}"><input type="radio" name="o" value="${i}" ${answers[idx]===i?'checked':''}> ${o.label}</label>`).join('')
+  }</div>`;
+  card.querySelectorAll('input').forEach(inp=>inp.addEventListener('change',e=>{
+    answers[idx]=+e.target.value;
+    card.querySelectorAll('.opt').forEach(l=>l.classList.remove('sel'));
+    e.target.closest('.opt').classList.add('sel');
+    document.getElementById('nextBtn').disabled=false;
+  }));
+  document.getElementById('nextBtn').disabled = answers[idx]===null;
+  document.getElementById('nextBtn').textContent = idx===questions.length-1 ? 'See my results' : 'Next';
+  document.getElementById('backBtn').style.visibility = idx===0 ? 'hidden' : 'visible';
+}
+
+function level(score){ return score<=2 ? 'low' : score<=4 ? 'mid' : 'high'; }
+
+function finish(){
+  const area={}; Object.keys(AREAS).forEach(k=>area[k]=0);
+  const detail = questions.map((q,i)=>{const s=q.o[answers[i]].s; area[q.a]+=s; return {id:q.id, area:q.a, answer:q.o[answers[i]].label, score:s};});
+  const total = Object.values(area).reduce((a,b)=>a+b,0); // 0..30
+  const band = total<=9 ? "Mostly unstuck" : total<=17 ? "Stuck sometimes" : total<=23 ? "Often stuck" : "Deep in the loop";
+  const sorted = Object.keys(area).sort((a,b)=>area[b]-area[a]);
+  const focus = sorted[0];
+
+  const bandText = {
+    "Mostly unstuck":"You're mostly managing well. Pick one area below to sharpen, and keep doing what works.",
+    "Stuck sometimes":"You get stuck on some days, which is completely normal. A couple of small changes in your focus area will make a noticeable difference.",
+    "Often stuck":"The loop is showing up a lot for you right now. Don't try to fix everything. Start with your focus area for the next 7 days.",
+    "Deep in the loop":"You're carrying a lot right now. Be gentle with yourself, start very small, and please consider talking to someone. See the help box below."
+  }[band];
+
+  const adv = ADVICE[focus][level(area[focus])];
+  const advList = Array.isArray(adv) ? adv : [adv];
+
+  let html = `<h1>Your result: ${band}</h1>
+  <p class="sub">Score: <strong>${total} / 30</strong> (higher means more stuck)</p>
+  <p>${bandText}</p>
+  <div class="card"><h2 style="margin-top:0">Focus first on: ${AREAS[focus].name}</h2>
+  <p class="small">Your next 7 days:</p><ul>${advList.map(a=>`<li>${a}</li>`).join('')}</ul></div>
+  <h2>Your five areas</h2>`;
+
+  sorted.forEach(k=>{
+    const lv=level(area[k]);
+    const a=ADVICE[k][lv];
+    html += `<div class="area ${lv==='high'?'high':''}"><strong>${AREAS[k].name}</strong><span class="tag">${area[k]}/6 · ${lv==='low'?'doing well':lv==='mid'?'worth attention':'focus here'}</span>
+      <div class="meter"><span style="width:${area[k]/6*100}%"></span></div>
+      <div class="small">${Array.isArray(a)?a[0]:a}</div></div>`;
+  });
+
+  html += `<div class="card help"><strong>When it's more than procrastination</strong>
+    <p class="small" style="margin-top:8px">If your mood has been low most days for two weeks or more, you've lost interest in things you enjoyed, or you've had thoughts of harming yourself, please talk to a doctor or counsellor. In India, call <strong>Tele-MANAS on 14416 or 1-800-891-4416</strong> (free, 24/7). In an emergency, call <strong>112</strong>. Outside India, contact your local helpline.</p></div>
+  <p class="small">This check is for self-reflection only and isn't a diagnosis. The questions change each time. Retake it in 2 weeks to see what's moved.</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button id="retake">Retake with new questions</button></div>`;
+
+  const res=document.getElementById('result');
+  res.innerHTML=html; res.classList.remove('hidden');
+  document.getElementById('quiz').classList.add('hidden');
+  window.scrollTo(0,0);
+  document.getElementById('retake').onclick=()=>{res.classList.add('hidden');buildQuiz();document.getElementById('quiz').classList.remove('hidden');render();};
+
+  // ===== save to Google Sheet =====
+  const payload = {
+    session: sid,
+    total, band, focus: AREAS[focus].name,
+    start: area.start, focusArea: area.focus, energy: area.energy, selftalk: area.talk, support: area.people,
+    answers: detail,
+    ref: document.referrer || "", ua: navigator.userAgent.slice(0,120), tz: Intl.DateTimeFormat().resolvedOptions().timeZone
+  };
+  if (SHEET_ENDPOINT.startsWith("https://")) {
+    fetch(SHEET_ENDPOINT, {method:"POST", mode:"no-cors", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload)}).catch(()=>{});
+  }
+}
+
+document.getElementById('startBtn').onclick=()=>{document.getElementById('intro').classList.add('hidden');document.getElementById('quiz').classList.remove('hidden');buildQuiz();render();};
+document.getElementById('nextBtn').onclick=()=>{ if(idx<questions.length-1){idx++;render();} else finish(); };
+document.getElementById('backBtn').onclick=()=>{ if(idx>0){idx--;render();} };
+</script>
+</body>
+</html>
